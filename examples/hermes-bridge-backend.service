@@ -1,0 +1,19 @@
+# systemd *user* unit (run as the user that owns ~/.hermes) for the loopback-only Hermes backend the
+# bridge talks to. `--isolated` keeps it from attaching to (or claiming) an existing dashboard.
+[Unit]
+Description=Hermes management backend for hermes-bridge (loopback only)
+
+[Service]
+# One line: HERMES_DASHBOARD_SESSION_TOKEN=<the same value as the bridge's dashboard_token_file>
+EnvironmentFile=%h/.config/hermes-bridge/backend.env
+# A non-loopback dashboard.public_url (set for a browser dashboard behind a proxy) turns on Hermes's
+# browser-login gate for EVERY dashboard process, including this loopback one. The env var beats
+# config.yaml, so this process names itself as its public URL and keeps session-token auth. It must
+# not also be set in ~/.hermes/.env, which overrides the process environment.
+Environment=HERMES_DASHBOARD_PUBLIC_URL=http://127.0.0.1:9120
+ExecStart=%h/.local/bin/hermes serve --isolated --host 127.0.0.1 --port 9120
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

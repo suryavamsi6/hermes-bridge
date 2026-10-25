@@ -1,0 +1,10 @@
+# hermes-bridge configuration. Every key can also be set with an environment variable
+# (shown on the right); environment variables win over this file.
+
+listen = "127.0.0.1:8765"                         # HERMES_BRIDGE_LISTEN
+dashboard_url = "http://127.0.0.1:9120"           # HERMES_BRIDGE_DASHBOARD_URL
+dashboard_token_file = "/etc/hermes-bridge/dashboard-token"  # HERMES_BRIDGE_DASHBOARD_TOKEN_FILE
+key_file = "/etc/hermes-bridge/bridge-key"       # HERMES_BRIDGE_KEY_FILE
+# base_path = "/bridge"   # HERMES_BRIDGE_BASE_PATH: strip this prefix if your proxy forwards it unstripped
+# dashboard_profile = "default"  # HERMES_BRIDGE_DASHBOARD_PROFILE: the profile `hermes serve` runs as
+# timeout = 30            # HERMES_BRIDGE_TIMEOUT: seconds per dashboard call

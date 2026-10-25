@@ -1,0 +1,15 @@
+[Unit]
+Description=hermes-bridge (management API for Hermes mobile clients)
+After=hermes-bridge-backend.service
+
+[Service]
+Environment=HERMES_BRIDGE_LISTEN=127.0.0.1:8765
+Environment=HERMES_BRIDGE_DASHBOARD_URL=http://127.0.0.1:9120
+Environment=HERMES_BRIDGE_KEY_FILE=%h/.config/hermes-bridge/bridge-key
+Environment=HERMES_BRIDGE_DASHBOARD_TOKEN_FILE=%h/.config/hermes-bridge/dashboard-token
+ExecStart=%h/.local/bin/hermes-bridge serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
