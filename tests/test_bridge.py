@@ -237,6 +237,28 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/v1/profiles/Ghost/jobs")[0], 400)
 
 
+class ServerHardeningTest(unittest.TestCase):
+    """The HTTP layer: a bad Content-Length is refused instead of reading until the client hangs up."""
+    setUp = BridgeTest.setUp
+    tearDown = BridgeTest.tearDown
+
+    def test_negative_or_garbage_content_length_is_rejected(self):
+        import http.client, threading
+        from http.server import ThreadingHTTPServer
+        from hermes_bridge.server import make_handler
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.bridge))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            for bad in ("-1", "abc"):
+                c = http.client.HTTPConnection("127.0.0.1", httpd.server_address[1], timeout=5)
+                c.putrequest("POST", "/v1/profiles"); c.putheader("Content-Length", bad); c.endheaders()
+                r = c.getresponse()
+                self.assertEqual(r.status, 400, bad)
+                r.read(); c.close()
+        finally:
+            httpd.shutdown(); httpd.server_close()
+
+
 class InitTest(unittest.TestCase):
     def test_init_creates_0600_secrets_once_and_never_prints_them(self):
         import io

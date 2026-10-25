@@ -100,10 +100,12 @@ class Bridge:
         except HttpError as e:
             return e.status, {"error": {"code": e.code, "message": e.message, **e.extra}}
         except UpstreamUnreachable as e:
-            return 502, {"error": {"code": "dashboard_unreachable", "message": str(e)}}
+            # Details (internal URLs, socket errors) go to the log, not to the client.
+            log.warning("dashboard unreachable: %s", e)
+            return 502, {"error": {"code": "dashboard_unreachable", "message": "The Hermes dashboard didn't answer. Check that it's running."}}
         except ConfigError as e:
             log.error("configuration error: %s", e)
-            return 500, {"error": {"code": "bridge_misconfigured", "message": str(e)}}
+            return 500, {"error": {"code": "bridge_misconfigured", "message": "hermes-bridge is misconfigured; see its log on the server."}}
 
     def _handle(self, method, path, query, headers, body) -> Result:
         if self.cfg.base_path and (path == self.cfg.base_path or path.startswith(self.cfg.base_path + "/")):

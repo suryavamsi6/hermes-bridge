@@ -16,10 +16,16 @@ def make_handler(bridge: Bridge):
         server_version = "hermes-bridge"
         sys_version = ""
         protocol_version = "HTTP/1.1"
+        timeout = 30  # seconds per socket read: a client that stalls mid-request can't pin a thread
 
         def _dispatch(self, method: str) -> None:
             parts = urlsplit(self.path)
-            length = int(self.headers.get("Content-Length") or 0)
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if length < 0:  # rfile.read(-1) would read until the client closes
+                return self._send(400, {"error": {"code": "bad_length", "message": "Invalid Content-Length."}})
             if length > MAX_BODY:
                 return self._send(413, {"error": {"code": "body_too_large", "message": "Body too large."}})
             body = self.rfile.read(length) if length else b""
