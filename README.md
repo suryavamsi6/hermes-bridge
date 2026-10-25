@@ -213,7 +213,7 @@ incompatible).
 ## API
 
 All endpoints except `/v1/health` need `Authorization: Bearer <bridge key>`. Errors are returned as
-`{"error": {"code", "message"}}`. `<p>` is a Hermes profile id (`default`, `jobwing`, …).
+`{"error": {"code", "message"}}`. `<p>` is a Hermes profile id (`default`, `scout`, …).
 
 | Method & path | Hermes route used | Notes |
 |---|---|---|

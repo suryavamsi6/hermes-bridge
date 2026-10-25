@@ -117,7 +117,7 @@ class BridgeTest(unittest.TestCase):
         by_id = {p["id"]: p for p in body["profiles"]}
         self.assertEqual(by_id["default"]["display_name"], "default")
         self.assertTrue(by_id["default"]["api_key_set"])
-        self.assertFalse(by_id["jobwing"]["api_key_set"])
+        self.assertFalse(by_id["scout"]["api_key_set"])
         raw = json.dumps(body)
         for secret in ("main-key", "sk-secret", "redacted_value", "…"):
             self.assertNotIn(secret, raw)
@@ -145,11 +145,11 @@ class BridgeTest(unittest.TestCase):
     def test_rotate_key(self):
         self.assertEqual(self.req("POST", "/v1/profiles/default/key")[1]["error"]["code"], "default_key_managed")
         self.assertEqual(self.req("POST", "/v1/profiles/nope/key")[0], 404)
-        s1, b1 = self.req("POST", "/v1/profiles/jobwing/key")
-        s2, b2 = self.req("POST", "/v1/profiles/jobwing/key")
+        s1, b1 = self.req("POST", "/v1/profiles/scout/key")
+        s2, b2 = self.req("POST", "/v1/profiles/scout/key")
         self.assertEqual((s1, s2), (200, 200))
         self.assertNotEqual(b1["api_key"], b2["api_key"])
-        self.assertEqual(self.fake.env["jobwing"]["API_SERVER_KEY"], b2["api_key"])
+        self.assertEqual(self.fake.env["scout"]["API_SERVER_KEY"], b2["api_key"])
 
     def test_gateway_restart(self):
         self.assertEqual(self.req("POST", "/v1/gateway/restart")[0], 202)
@@ -160,13 +160,13 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["servers"][0]["env_keys"], ["GITHUB_TOKEN"])
         self.assertNotIn("env", body["servers"][0])
-        self.assertEqual(self.req("POST", "/v1/profiles/jobwing/mcp", {"name": "time", "url": "https://t", "env": {"A": "b"}})[0], 201)
-        self.assertEqual(self.fake.mcp["jobwing"][0]["name"], "time")
-        self.assertEqual(self.req("PUT", "/v1/profiles/jobwing/mcp/time/enabled", {"enabled": "yes"})[0], 400)
-        self.assertEqual(self.req("PUT", "/v1/profiles/jobwing/mcp/time/enabled", {"enabled": False})[0], 200)
-        self.assertEqual(self.req("DELETE", "/v1/profiles/jobwing/mcp/time")[0], 200)
-        self.assertEqual(self.fake.mcp["jobwing"], [])
-        self.assertEqual(self.req("GET", "/v1/profiles/jobwing/mcp-catalog")[1]["entries"][0]["name"], "time")
+        self.assertEqual(self.req("POST", "/v1/profiles/scout/mcp", {"name": "time", "url": "https://t", "env": {"A": "b"}})[0], 201)
+        self.assertEqual(self.fake.mcp["scout"][0]["name"], "time")
+        self.assertEqual(self.req("PUT", "/v1/profiles/scout/mcp/time/enabled", {"enabled": "yes"})[0], 400)
+        self.assertEqual(self.req("PUT", "/v1/profiles/scout/mcp/time/enabled", {"enabled": False})[0], 200)
+        self.assertEqual(self.req("DELETE", "/v1/profiles/scout/mcp/time")[0], 200)
+        self.assertEqual(self.fake.mcp["scout"], [])
+        self.assertEqual(self.req("GET", "/v1/profiles/scout/mcp-catalog")[1]["entries"][0]["name"], "time")
 
     def test_jobs(self):
         self.assertEqual(self.req("GET", "/v1/profiles/default/jobs")[1]["jobs"][0]["id"], "j1")
@@ -181,10 +181,10 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body["plugins"][0]["tools"], ["fetch", "search"])
         self.assertTrue(body["toggle_supported"])
-        self.assertFalse(self.req("GET", "/v1/profiles/jobwing/plugins")[1]["toggle_supported"])
-        status, body = self.req("POST", "/v1/profiles/jobwing/plugins/web-tools/disable")
+        self.assertFalse(self.req("GET", "/v1/profiles/scout/plugins")[1]["toggle_supported"])
+        status, body = self.req("POST", "/v1/profiles/scout/plugins/web-tools/disable")
         self.assertEqual((status, body["error"]["code"]), (409, "plugin_toggle_unsupported"))
-        self.assertIn("hermes -p jobwing plugins disable web-tools", body["error"]["message"])
+        self.assertIn("hermes -p scout plugins disable web-tools", body["error"]["message"])
         self.assertEqual(self.req("POST", "/v1/profiles/default/plugins/web-tools/disable")[0], 200)
         self.assertFalse(self.fake.plugin_enabled["web-tools"])
 
@@ -196,11 +196,11 @@ class BridgeTest(unittest.TestCase):
                          ("spotify", False, ["SPOTIFY_CLIENT_ID"], ["play"]))
         self.assertNotIn("repo", e)  # only display fields go to the phone
         self.assertTrue(body["install_supported"])
-        self.assertFalse(self.req("GET", "/v1/profiles/jobwing/plugin-catalog")[1]["install_supported"])
+        self.assertFalse(self.req("GET", "/v1/profiles/scout/plugin-catalog")[1]["install_supported"])
         # Catalog names only: a git URL never reaches the dashboard.
         self.assertEqual(self.req("POST", "/v1/profiles/default/plugin-catalog/install",
                                   {"name": "https://evil.example/repo.git"})[0], 400)
-        status, body = self.req("POST", "/v1/profiles/jobwing/plugin-catalog/install", {"name": "spotify"})
+        status, body = self.req("POST", "/v1/profiles/scout/plugin-catalog/install", {"name": "spotify"})
         self.assertEqual((status, body["error"]["code"]), (409, "plugin_install_unsupported"))
         status, body = self.req("POST", "/v1/profiles/default/plugin-catalog/install", {"name": "spotify"})
         self.assertEqual(status, 200)
@@ -225,9 +225,9 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(self.req("GET", "/v1/profiles/nobody/soul")[0], 404)
 
     def test_usage_totals(self):
-        code, body = self.req("GET", "/v1/profiles/jobwing/usage?days=7")
+        code, body = self.req("GET", "/v1/profiles/scout/usage?days=7")
         self.assertEqual(code, 200)
-        self.assertEqual(body["totals"]["profile"], "jobwing")
+        self.assertEqual(body["totals"]["profile"], "scout")
         self.assertEqual(body["totals"]["days"], 7)
         self.assertNotIn("skills", body)
         self.assertEqual(self.req("GET", "/v1/profiles/default/usage?days=x")[0], 400)

@@ -18,12 +18,12 @@ class FakeHermes:
         self.calls: list[str] = []
         self.auth_required = False
         self.broken: set[str] = set()  # paths that 404 (simulate API drift)
-        self.profiles = {"default": {"display_name": None}, "jobwing": {"display_name": None}}
+        self.profiles = {"default": {"display_name": None}, "scout": {"display_name": None}}
         self.env = {"default": {"API_SERVER_KEY": "main-key-xxxxxxxxxxxxxxxx", "OPENAI_API_KEY": "sk-secret-value"},
-                    "jobwing": {}}
+                    "scout": {}}
         self.mcp = {"default": [{"name": "github", "transport": "http", "url": "https://x", "command": None, "args": [],
                                  "env": {"GITHUB_TOKEN": "***"}, "auth": "header", "enabled": True, "tools": ["search"]}],
-                    "jobwing": []}
+                    "scout": []}
         # Shaped like hermes-agent cron/jobs.py create_job + _normalize_job_record (schedule is an object).
         self.jobs = {"default": [
             {"id": "j1", "name": "Morning brief", "prompt": "Summarise my calendar, weather and unread mail for today.",
@@ -32,11 +32,11 @@ class FakeHermes:
              "state": "scheduled", "paused_at": None, "next_run_at": "2026-10-26T08:00:00+05:30",
              "last_run_at": "2026-10-25T08:00:04+05:30", "last_status": "ok", "deliver": "origin",
              "origin": {"platform": "api", "chat_id": "bot-chat"}, "latest_execution": {"status": "ok", "duration_s": 41.2}},
-            {"id": "j2", "name": "Disk check", "prompt": "", "skills": ["homelab-health"], "skill": "homelab-health",
+            {"id": "j2", "name": "Disk check", "prompt": "", "skills": ["server-health"], "skill": "server-health",
              "schedule": {"kind": "interval", "minutes": 360, "display": "every 360m"}, "schedule_display": "every 360m",
              "enabled": False, "state": "paused", "paused_at": "2026-10-20T10:00:00+05:30", "next_run_at": None,
              "last_run_at": "2026-10-20T06:00:00+05:30", "last_status": "error", "deliver": "local"}],
-                     "jobwing": []}
+                     "scout": []}
         self.plugin_enabled = {"web-tools": True}
         self.souls = {"default": "You are Hermes."}
 
