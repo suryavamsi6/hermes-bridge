@@ -87,6 +87,7 @@ class Bridge:
         r("PUT", P + rf"/memory/providers/(?P<name>{NAME_RE})/config", self.memory_config_put)
         r("GET", P + r"/soul", self.soul_get)
         r("PUT", P + r"/soul", self.soul_put)
+        r("GET", P + r"/usage", self.usage)
 
     def _route(self, method: str, pattern: str, fn: Callable[..., Result], auth: bool = True, gate: bool = True) -> None:
         self.routes.append((method, re.compile("^" + pattern + "$"), fn, auth, gate and auth))
@@ -433,6 +434,18 @@ class Bridge:
         self._require_profile(p)
         self._call("PUT", f"/api/profiles/{quote(p)}/soul", body={"content": content})
         return 200, {"ok": True}
+
+
+    # Token and cost totals for a profile (dashboard /api/analytics/usage). Only the totals and the
+    # per-model and per-day rows are passed on.
+    def usage(self, p: str, query: dict, **_) -> Result:
+        try:
+            days = max(1, min(365, int(query.get("days") or 30)))
+        except ValueError:
+            raise HttpError(400, "invalid_days", "days must be a number from 1 to 365")
+        body = self._call("GET", "/api/analytics/usage", query={"profile": p, "days": days})
+        return 200, {"days": days, "totals": body.get("totals") or {}, "by_model": body.get("by_model") or [],
+                     "daily": body.get("daily") or []}
 
 
 SOUL_MAX_BYTES = 48 * 1024  # under MAX_BODY, leaving room for JSON escaping

@@ -172,6 +172,10 @@ class FakeHermes:
         if m := re.fullmatch(r"/api/memory/providers/([^/]+)/config", path):
             return 200, ({"name": m[1], "fields": [{"key": "api_key", "kind": "secret", "value": "", "is_set": True}]}
                          if method == "GET" else {"ok": True})
+        if (method, path) == ("GET", "/api/analytics/usage"):
+            return 200, {"daily": [], "by_model": [{"model": "m", "input_tokens": 5}], "by_task": [], "skills": {"secret": 1},
+                         "totals": {"total_input": 10, "total_output": 4, "total_estimated_cost": 0.02, "total_sessions": 2,
+                                    "profile": prof, "days": int(q.get("days", 0))}}
         if m := re.fullmatch(r"/api/profiles/([^/]+)/soul", path):
             if method == "GET":
                 return 200, {"content": self.souls.get(m[1], ""), "exists": m[1] in self.souls}

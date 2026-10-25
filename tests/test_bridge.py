@@ -224,6 +224,14 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(self.req("PUT", "/v1/profiles/default/soul", {"content": "x" * (48 * 1024 + 1)})[0], 413)
         self.assertEqual(self.req("GET", "/v1/profiles/nobody/soul")[0], 404)
 
+    def test_usage_totals(self):
+        code, body = self.req("GET", "/v1/profiles/jobwing/usage?days=7")
+        self.assertEqual(code, 200)
+        self.assertEqual(body["totals"]["profile"], "jobwing")
+        self.assertEqual(body["totals"]["days"], 7)
+        self.assertNotIn("skills", body)
+        self.assertEqual(self.req("GET", "/v1/profiles/default/usage?days=x")[0], 400)
+
     def test_unknown_profile_and_bad_ids(self):
         self.assertEqual(self.req("GET", "/v1/profiles/ghost/jobs")[0], 404)
         self.assertEqual(self.req("GET", "/v1/profiles/Ghost/jobs")[0], 400)
