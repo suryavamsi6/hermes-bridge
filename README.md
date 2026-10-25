@@ -156,4 +156,4 @@ python -m unittest discover -s tests -v   # a fake Hermes dashboard over real HT
 
 ## License
 
-Not chosen yet; see `LICENSE.md`.
+MIT, same as [Hermes Agent](https://github.com/NousResearch/hermes-agent) itself. See `LICENSE.md`.

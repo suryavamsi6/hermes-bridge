@@ -7,11 +7,11 @@ name = "hermes-bridge"
 version = "0.1.0"
 description = "A small, allowlisting management API for a self-hosted Hermes Agent, built for mobile apps."
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.11"
 # No runtime dependencies: standard library only, so it runs on any Linux python3 >= 3.11.
 dependencies = []
-# License intentionally not set yet; see LICENSE.md.
-classifiers = ["Programming Language :: Python :: 3", "Operating System :: POSIX :: Linux"]
+classifiers = ["Programming Language :: Python :: 3", "Operating System :: POSIX :: Linux", "License :: OSI Approved :: MIT License"]
 
 [project.scripts]
 hermes-bridge = "hermes_bridge.__main__:main"
