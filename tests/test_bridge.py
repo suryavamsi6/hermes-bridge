@@ -188,6 +188,25 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(self.req("POST", "/v1/profiles/default/plugins/web-tools/disable")[0], 200)
         self.assertFalse(self.fake.plugin_enabled["web-tools"])
 
+    def test_plugin_catalog_and_install(self):
+        status, body = self.req("GET", "/v1/profiles/default/plugin-catalog")
+        self.assertEqual(status, 200)
+        e = body["entries"][0]
+        self.assertEqual((e["name"], e["installed"], e["requires_env"], e["provides_tools"]),
+                         ("spotify", False, ["SPOTIFY_CLIENT_ID"], ["play"]))
+        self.assertNotIn("repo", e)  # only display fields go to the phone
+        self.assertTrue(body["install_supported"])
+        self.assertFalse(self.req("GET", "/v1/profiles/jobwing/plugin-catalog")[1]["install_supported"])
+        # Catalog names only: a git URL never reaches the dashboard.
+        self.assertEqual(self.req("POST", "/v1/profiles/default/plugin-catalog/install",
+                                  {"name": "https://evil.example/repo.git"})[0], 400)
+        status, body = self.req("POST", "/v1/profiles/jobwing/plugin-catalog/install", {"name": "spotify"})
+        self.assertEqual((status, body["error"]["code"]), (409, "plugin_install_unsupported"))
+        status, body = self.req("POST", "/v1/profiles/default/plugin-catalog/install", {"name": "spotify"})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.fake.last_install, {"identifier": "", "catalog_name": "spotify", "enable": True, "force": False})
+        self.assertTrue(self.req("GET", "/v1/profiles/default/plugin-catalog")[1]["entries"][0]["installed"])
+
     def test_skills_toolsets_memory(self):
         self.assertEqual(self.req("GET", "/v1/profiles/default/skills")[1]["skills"][0]["name"], "web")
         self.assertEqual(self.req("PUT", "/v1/profiles/default/skills/enabled", {"name": "web", "enabled": False})[0], 200)

@@ -149,6 +149,20 @@ class FakeHermes:
                                       "runtime_status": "enabled" if on else "disabled", "auth_required": False}
                                      for n, on in self.plugin_enabled.items()],
                          "orphan_dashboard_plugins": [], "providers": {"memory_provider": "builtin"}}
+        if (method, path) == ("GET", "/api/dashboard/plugins/catalog"):
+            return 200, {"entries": [
+                {"name": "spotify", "title": "Spotify", "description": "Control playback", "maintainer": "nous",
+                 "tier": "official", "category": "media", "version": "1.2.0", "repo": "https://github.com/x/y",
+                 "sha": "a" * 40, "installed": "spotify" in self.plugin_enabled, "update_available": False,
+                 "runtime_status": None, "capability_summary": "1 tool",
+                 "capabilities": {"provides_tools": ["play"], "requires_env": ["SPOTIFY_CLIENT_ID"]}}],
+                "removed": [], "generated_at": "2026-10-25T00:00:00Z"}
+        if (method, path) == ("POST", "/api/dashboard/agent-plugins/install"):
+            self.last_install = body
+            if body.get("catalog_name") != "spotify":
+                return 400, {"detail": "Unknown catalog entry"}
+            self.plugin_enabled["spotify"] = True
+            return 200, {"ok": True, "name": "spotify", "after_install_path": "/srv/x"}
         if m := re.fullmatch(r"/api/dashboard/agent-plugins/(.+)/(enable|disable)", path):
             self.plugin_enabled[m[1]] = m[2] == "enable"
             return 200, {"ok": True}

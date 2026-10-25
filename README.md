@@ -137,6 +137,8 @@ All endpoints except `/v1/health` need `Authorization: Bearer <bridge key>`. Err
 | `GET /v1/profiles/<p>/toolsets`, `PUT …/toolsets/<name>/enabled` | `/api/tools/toolsets` | `{enabled}` |
 | `GET /v1/profiles/<p>/plugins` | `/api/dashboard/plugins/hub`, `/api/tools/toolsets` | Each plugin's `tools` come from the toolset with the same name. `toggle_supported` is shown. |
 | `POST /v1/profiles/<p>/plugins/<name>/{enable,disable}` | `/api/dashboard/agent-plugins/<name>/…` | Only for the backend's own profile. Otherwise 409 with the `hermes -p <p> plugins …` command to run. |
+| `GET /v1/profiles/<p>/plugin-catalog` | `/api/dashboard/plugins/catalog` | Hermes's curated plugin marketplace with installed/update state. Display fields only (no repo URLs). `install_supported` is shown. |
+| `POST /v1/profiles/<p>/plugin-catalog/install` | `/api/dashboard/agent-plugins/install` | `{name}`: a catalog name only, never a git URL. Only for the backend's own profile (409 otherwise). Up to 180 s, since Hermes clones the plugin. |
 | `GET /v1/profiles/<p>/memory` | `GET /api/memory` | Active provider, providers, built-in file sizes. |
 | `GET/PUT /v1/profiles/<p>/memory/providers/<name>/config` | same under `/api/memory/providers` | Hermes blanks secret fields. PUT takes `{values}`. |
 

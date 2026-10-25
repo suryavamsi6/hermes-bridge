@@ -80,6 +80,8 @@ class Bridge:
         r("PUT", P + rf"/toolsets/(?P<name>{NAME_RE})/enabled", self.toolset_toggle)
         r("GET", P + r"/plugins", self.plugins_list)
         r("POST", P + r"/plugins/(?P<name>.{1,200})/(?P<action>enable|disable)", self.plugin_toggle)
+        r("GET", P + r"/plugin-catalog", self.plugins_catalog)
+        r("POST", P + r"/plugin-catalog/install", self.plugin_catalog_install)
         r("GET", P + r"/memory", self.memory_status)
         r("GET", P + rf"/memory/providers/(?P<name>{NAME_RE})/config", self.memory_config_get)
         r("PUT", P + rf"/memory/providers/(?P<name>{NAME_RE})/config", self.memory_config_put)
@@ -368,6 +370,36 @@ class Bridge:
                             f"Hermes's dashboard API turns plugins on and off only for the profile it runs as "
                             f"('{self.cfg.dashboard_profile}'). On the server run: hermes -p {p} plugins {action} {name}")
         return 200, self._call("POST", f"/api/dashboard/agent-plugins/{quote(name, safe='/')}/{action}")
+
+    # Plugin marketplace (Hermes's curated catalog). Installs go by catalog name only, so the bridge
+    # never forwards an arbitrary git URL; Hermes resolves the repo and its pinned commit itself.
+    _CATALOG_FIELDS = ("name", "title", "description", "maintainer", "tier", "category", "version", "docs_url",
+                       "image", "installed", "update_available", "runtime_status", "capability_summary")
+
+    def plugins_catalog(self, p: str, **_) -> Result:
+        body = self._call("GET", "/api/dashboard/plugins/catalog")
+        entries = []
+        for e in body.get("entries", []) if isinstance(body, dict) else []:
+            if not isinstance(e, dict):
+                continue
+            row = {k: e.get(k) for k in self._CATALOG_FIELDS}
+            caps = e.get("capabilities") if isinstance(e.get("capabilities"), dict) else {}
+            row["requires_env"] = list(caps.get("requires_env") or [])
+            row["provides_tools"] = list(caps.get("provides_tools") or [])
+            entries.append(row)
+        return 200, {"entries": entries, "install_supported": p == self.cfg.dashboard_profile}
+
+    def plugin_catalog_install(self, p: str, body: dict, **_) -> Result:
+        name = str(body.get("name") or "")
+        if not re.fullmatch(r"[a-z0-9_-]{1,64}", name):
+            raise HttpError(400, "invalid_body", "name must be a catalog name ([a-z0-9_-], up to 64 characters)")
+        if p != self.cfg.dashboard_profile:
+            raise HttpError(409, "plugin_install_unsupported",
+                            f"Hermes's dashboard API installs plugins only for the profile it runs as "
+                            f"('{self.cfg.dashboard_profile}'). On the server run: hermes -p {p} plugins install {name}")
+        # Install clones the plugin's repo, so allow it far longer than an ordinary call.
+        return 200, self._call("POST", "/api/dashboard/agent-plugins/install", timeout=max(self.cfg.timeout, 180.0),
+                               body={"identifier": "", "catalog_name": name, "enable": True, "force": False})
 
     # Memory
     def memory_status(self, p: str, **_) -> Result:
