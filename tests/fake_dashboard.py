@@ -38,6 +38,7 @@ class FakeHermes:
              "last_run_at": "2026-10-20T06:00:00+05:30", "last_status": "error", "deliver": "local"}],
                      "jobwing": []}
         self.plugin_enabled = {"web-tools": True}
+        self.souls = {"default": "You are Hermes."}
 
     # -- server plumbing
     def start(self):
@@ -171,4 +172,9 @@ class FakeHermes:
         if m := re.fullmatch(r"/api/memory/providers/([^/]+)/config", path):
             return 200, ({"name": m[1], "fields": [{"key": "api_key", "kind": "secret", "value": "", "is_set": True}]}
                          if method == "GET" else {"ok": True})
+        if m := re.fullmatch(r"/api/profiles/([^/]+)/soul", path):
+            if method == "GET":
+                return 200, {"content": self.souls.get(m[1], ""), "exists": m[1] in self.souls}
+            self.souls[m[1]] = body["content"]
+            return 200, {"ok": True}
         return 404, {"detail": "Not Found"}

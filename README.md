@@ -141,6 +141,7 @@ All endpoints except `/v1/health` need `Authorization: Bearer <bridge key>`. Err
 | `POST /v1/profiles/<p>/plugin-catalog/install` | `/api/dashboard/agent-plugins/install` | `{name}`: a catalog name only, never a git URL. Only for the backend's own profile (409 otherwise). Up to 180 s, since Hermes clones the plugin. |
 | `GET /v1/profiles/<p>/memory` | `GET /api/memory` | Active provider, providers, built-in file sizes. |
 | `GET/PUT /v1/profiles/<p>/memory/providers/<name>/config` | same under `/api/memory/providers` | Hermes blanks secret fields. PUT takes `{values}`. |
+| `GET/PUT /v1/profiles/<p>/soul` | `GET/PUT /api/profiles/<p>/soul` | The persona (SOUL.md). PUT takes `{content}`, text up to 48 KB. |
 
 ## Compatibility
 

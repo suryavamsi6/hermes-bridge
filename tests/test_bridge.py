@@ -216,6 +216,14 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(cfg["fields"][0]["value"], "")
         self.assertEqual(self.req("PUT", "/v1/profiles/default/memory/providers/honcho/config", {"values": {"a": "b"}})[0], 200)
 
+    def test_soul_read_and_write(self):
+        self.assertEqual(self.req("GET", "/v1/profiles/default/soul"), (200, {"content": "You are Hermes.", "exists": True}))
+        self.assertEqual(self.req("PUT", "/v1/profiles/default/soul", {"content": "Be brief."})[0], 200)
+        self.assertEqual(self.fake.souls["default"], "Be brief.")
+        self.assertEqual(self.req("PUT", "/v1/profiles/default/soul", {"content": 3})[0], 400)
+        self.assertEqual(self.req("PUT", "/v1/profiles/default/soul", {"content": "x" * (48 * 1024 + 1)})[0], 413)
+        self.assertEqual(self.req("GET", "/v1/profiles/nobody/soul")[0], 404)
+
     def test_unknown_profile_and_bad_ids(self):
         self.assertEqual(self.req("GET", "/v1/profiles/ghost/jobs")[0], 404)
         self.assertEqual(self.req("GET", "/v1/profiles/Ghost/jobs")[0], 400)

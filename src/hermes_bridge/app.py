@@ -85,6 +85,8 @@ class Bridge:
         r("GET", P + r"/memory", self.memory_status)
         r("GET", P + rf"/memory/providers/(?P<name>{NAME_RE})/config", self.memory_config_get)
         r("PUT", P + rf"/memory/providers/(?P<name>{NAME_RE})/config", self.memory_config_put)
+        r("GET", P + r"/soul", self.soul_get)
+        r("PUT", P + r"/soul", self.soul_put)
 
     def _route(self, method: str, pattern: str, fn: Callable[..., Result], auth: bool = True, gate: bool = True) -> None:
         self.routes.append((method, re.compile("^" + pattern + "$"), fn, auth, gate and auth))
@@ -414,6 +416,26 @@ class Bridge:
             raise HttpError(400, "invalid_body", "values must be an object")
         return 200, self._call("PUT", f"/api/memory/providers/{quote(name)}/config", query={"profile": p},
                                body={"values": values})
+
+    # The profile's persona (SOUL.md) via the dashboard's /api/profiles/{name}/soul. Writes are
+    # size-capped and must be text; the dashboard writes atomically.
+    def soul_get(self, p: str, **_) -> Result:
+        self._require_profile(p)
+        body = self._call("GET", f"/api/profiles/{quote(p)}/soul")
+        return 200, {"content": str(body.get("content") or ""), "exists": bool(body.get("exists"))}
+
+    def soul_put(self, p: str, body: dict, **_) -> Result:
+        content = body.get("content")
+        if not isinstance(content, str):
+            raise HttpError(400, "invalid_body", "content must be a string")
+        if len(content.encode("utf-8")) > SOUL_MAX_BYTES:
+            raise HttpError(413, "too_large", f"SOUL.md is limited to {SOUL_MAX_BYTES // 1024} KB.")
+        self._require_profile(p)
+        self._call("PUT", f"/api/profiles/{quote(p)}/soul", body={"content": content})
+        return 200, {"ok": True}
+
+
+SOUL_MAX_BYTES = 48 * 1024  # under MAX_BODY, leaving room for JSON escaping
 
 
 # ---------------------------------------------------------------------- small helpers
