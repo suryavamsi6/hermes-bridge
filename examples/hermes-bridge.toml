@@ -8,3 +8,4 @@ key_file = "/etc/hermes-bridge/bridge-key"       # HERMES_BRIDGE_KEY_FILE
 # base_path = "/bridge"   # HERMES_BRIDGE_BASE_PATH: strip this prefix if your proxy forwards it unstripped
 # dashboard_profile = "default"  # HERMES_BRIDGE_DASHBOARD_PROFILE: the profile `hermes serve` runs as
 # timeout = 30            # HERMES_BRIDGE_TIMEOUT: seconds per dashboard call
+# hermes_home = "~/.hermes"  # HERMES_BRIDGE_HERMES_HOME: Hermes's root home, for slash commands

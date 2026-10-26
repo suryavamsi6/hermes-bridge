@@ -7,6 +7,8 @@ Environment=HERMES_BRIDGE_LISTEN=127.0.0.1:8765
 Environment=HERMES_BRIDGE_DASHBOARD_URL=http://127.0.0.1:9120
 Environment=HERMES_BRIDGE_KEY_FILE=%h/.config/hermes-bridge/bridge-key
 Environment=HERMES_BRIDGE_DASHBOARD_TOKEN_FILE=%h/.config/hermes-bridge/dashboard-token
+# Slash commands reach `hermes gateway` through its private socket in this home (same user as Hermes).
+Environment=HERMES_BRIDGE_HERMES_HOME=%h/.hermes
 ExecStart=%h/.local/bin/hermes-bridge serve
 Restart=on-failure
 RestartSec=5

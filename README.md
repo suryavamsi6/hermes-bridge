@@ -27,7 +27,9 @@ terminal, a file browser and secret reveal. The bridge is a narrow door into it:
 - it has its own key, separate from your Hermes chat keys;
 - it adds three things the dashboard can't do in one call: a profile list with display names and
   "has a chat key" flags, **creating a profile together with its own chat key** (written into that
-  profile's `.env`, returned once), and **rotating a profile's chat key**.
+  profile's `.env`, returned once), and **rotating a profile's chat key**;
+- it lets a phone run **slash commands** (`/status`, `/title`, `/yolo`, `/reasoning`, `/plan`, …) with
+  Hermes's own handlers, the same ones Telegram uses (see [Slash commands](#slash-commands)).
 
 ## How it fits together
 
@@ -35,7 +37,8 @@ terminal, a file browser and secret reveal. The bridge is a narrow door into it:
 phone ──HTTPS──▶ your proxy (Tailscale Funnel, Caddy, nginx, Cloudflare Tunnel…)
                    ├─ /        ──▶ Hermes API server   127.0.0.1:8642  (chat; per-profile API_SERVER_KEY)
                    └─ /bridge  ──▶ hermes-bridge       127.0.0.1:8765  (management; bridge key)
-                                     └─ loopback ──▶ `hermes serve`   127.0.0.1:9120  (fixed session token)
+                                     ├─ loopback ──▶ `hermes serve`   127.0.0.1:9120  (fixed session token)
+                                     └─ gateway.sock + loopback /api/ws ──▶ `hermes gateway` (slash commands)
 ```
 
 The bridge needs a Hermes dashboard backend that accepts a **fixed session token**: a loopback-only
@@ -132,7 +135,7 @@ the container's address (`HERMES_BRIDGE_LISTEN=<container-ip>:8765`) and point t
 { pkgs, ... }:
 let
   hermes-bridge = pkgs.python3Packages.buildPythonApplication {
-    pname = "hermes-bridge"; version = "0.1.0"; pyproject = true;
+    pname = "hermes-bridge"; version = "0.4.0"; pyproject = true;
     src = pkgs.fetchFromGitHub { owner = "suryavamsi6"; repo = "hermes-bridge"; rev = "main"; hash = pkgs.lib.fakeHash; };
     build-system = [ pkgs.python3Packages.setuptools ];
   };
@@ -146,6 +149,7 @@ in {
       HERMES_BRIDGE_DASHBOARD_URL = "http://127.0.0.1:9120";
       HERMES_BRIDGE_KEY_FILE = "/var/lib/hermes-bridge/bridge-key";
       HERMES_BRIDGE_DASHBOARD_TOKEN_FILE = "/var/lib/hermes-bridge/dashboard-token";
+      HERMES_BRIDGE_HERMES_HOME = "/var/lib/hermes/.hermes";  # the Hermes user's home, for slash commands
     };
     serviceConfig = {
       User = "hermes";                       # the user that owns ~/.hermes
@@ -205,6 +209,7 @@ Environment variables, or keys in a TOML file passed with `--config` (environmen
 | `HERMES_BRIDGE_BASE_PATH` | none | Prefix to strip (e.g. `/bridge`) if the proxy doesn't. |
 | `HERMES_BRIDGE_DASHBOARD_PROFILE` | `default` | Profile the backend runs as. Plugin toggles and installs only work for it (a Hermes limit). |
 | `HERMES_BRIDGE_TIMEOUT` | `30` | Seconds per Hermes call. |
+| `HERMES_BRIDGE_HERMES_HOME` | `~/.hermes` | Hermes's root home, for slash commands. Profile `<p>` is `<root>/profiles/<p>`. |
 
 CLI: `hermes-bridge serve` (default), `hermes-bridge init --key-file … --dashboard-token-file …` (creates
 missing secret files, never prints them), `hermes-bridge check` (prints the compatibility report; exit 1 if
@@ -241,6 +246,35 @@ All endpoints except `/v1/health` need `Authorization: Bearer <bridge key>`. Err
 | `GET/PUT /v1/profiles/<p>/memory/providers/<name>/config` | same under `/api/memory/providers` | Hermes blanks secret fields. PUT takes `{values}`. |
 | `GET/PUT /v1/profiles/<p>/soul` | `GET/PUT /api/profiles/<p>/soul` | The persona (SOUL.md). PUT takes `{content}`, text up to 48 KB. |
 | `GET /v1/profiles/<p>/usage?days=30` | `GET /api/analytics/usage` | Token and cost totals, per model and per day (days 1-365). |
+| `GET /v1/profiles/<p>/commands` | gateway `commands.catalog` | Hermes's command list: `{commands: [{name, description, category, aliases}], plugin_commands}`. Includes your `quick_commands` ("User commands"). |
+| `POST /v1/profiles/<p>/commands/run` | gateway `slash.exec` | `{session_id, command}` (e.g. `"/title Trip plans"`). Returns `{type: "exec", output}` (markdown), or `{type: "send", message}` for commands like `/plan` whose result is a prompt the client sends as the next turn. |
+
+## Slash commands
+
+Telegram runs commands with Hermes's messaging handlers inside `hermes gateway`. The API server the app
+chats through doesn't take commands, and the dashboard backend runs the *CLI's* handlers, so the bridge goes
+to the gateway, the way Hermes's own TUI and Desktop app do:
+
+1. It opens the gateway's private control socket (`<home>/gateway.sock`, mode 0600) and asks for a
+   30-second session ticket. Only a process running **as the same OS user as Hermes** can do this; the bridge
+   also refuses a socket that isn't private to its user.
+2. It connects to the gateway's loopback API (`ws://127.0.0.1:<random port>/api/ws`, never a non-loopback
+   address) with that ticket and makes one call: `commands.catalog` or `slash.exec`. No other method can be
+   sent (`hermes_bridge/gateway.py` `METHODS`). Nothing new listens on a port.
+
+Hermes decides what each session may run. Commands run in sessions the gateway owns, which includes each
+profile's **Bot Chat** (the chat the app uses by default). A session created through the API server (`api_…`)
+gets `404 session_not_owned`. Commands Hermes doesn't run for a remote chat (for example `/compress`, `/undo`,
+`/model`, `/new`, `/restart`) get `422 command_unsupported`, with Hermes's hint when it has one; the app does
+most of those itself. If the gateway can't be reached the answer is `503 commands_unavailable` with a
+`reason` (`gateway_not_running`, `gateway_not_ready`, `gateway_unsafe_socket`, `gateway_incompatible`, …), and
+the rest of the bridge keeps working.
+
+**Requirements.** Run the bridge as the user that runs `hermes gateway`, with `HERMES_BRIDGE_HERMES_HOME`
+pointing at that user's Hermes home if it isn't `~/.hermes`. Read-only sandboxing (`ProtectSystem=strict`) is
+fine. If the home's path is very long, Hermes puts the socket under its `TMPDIR` and leaves a
+`gateway.sock.path` pointer; then the bridge must share that `/tmp` (no `PrivateTmp=true`). A named profile
+works when its own gateway runs, or when the default gateway serves it (`gateway.multiplex_profiles`).
 
 ## Compatibility
 
@@ -258,6 +292,10 @@ python -m unittest discover -s tests -v   # real HTTP against a fake Hermes dash
 end to end (`npm test` there, with this repo checked out next to it).
 
 ## Troubleshooting
+
+- **Slash commands say `commands_unavailable`.** Check `reason`: `gateway_not_running` means no gateway
+  socket at `HERMES_BRIDGE_HERMES_HOME` (wrong home, gateway stopped, or the bridge runs as another user);
+  `gateway_unsafe_socket` means the socket or its home isn't private to the bridge's user.
 
 - **`/v1/status` says browser login / gated.** The backend isn't in session-token mode: check
   `HERMES_DASHBOARD_SESSION_TOKEN` is in its *process* env (not `~/.hermes/.env`), it's bound to 127.0.0.1,
