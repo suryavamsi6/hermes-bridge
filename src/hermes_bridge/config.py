@@ -14,6 +14,7 @@ ENV = {
     "base_path": "HERMES_BRIDGE_BASE_PATH",
     "dashboard_profile": "HERMES_BRIDGE_DASHBOARD_PROFILE",
     "timeout": "HERMES_BRIDGE_TIMEOUT",
+    "hermes_home": "HERMES_BRIDGE_HERMES_HOME",
 }
 
 
@@ -31,6 +32,7 @@ class Config:
     base_path: str = ""          # e.g. "/bridge" when a proxy forwards the prefix unstripped
     dashboard_profile: str = "default"  # the profile the dashboard backend was launched as
     timeout: float = 30.0
+    hermes_home: Path = Path("~/.hermes")  # Hermes's root home (profiles live in <root>/profiles/<name>)
 
     def dashboard_token(self) -> str:
         return _read_secret(self.dashboard_token_file, "dashboard token")
@@ -76,4 +78,5 @@ def load(config_file: str | None = None, environ: dict | None = None) -> Config:
         dashboard_url=str(raw.get("dashboard_url", "http://127.0.0.1:9120")).rstrip("/"),
         dashboard_token_file=Path(raw["dashboard_token_file"]), key_file=Path(raw["key_file"]),
         base_path=base, dashboard_profile=str(raw.get("dashboard_profile", "default")),
-        timeout=float(raw.get("timeout", 30)))
+        timeout=float(raw.get("timeout", 30)),
+        hermes_home=Path(str(raw.get("hermes_home", "~/.hermes"))).expanduser())

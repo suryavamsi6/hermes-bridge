@@ -1,7 +1,8 @@
 """Route table and handlers. Everything the bridge can reach upstream is listed in ROUTES below;
 any other path is a 404 that never touches the dashboard (no generic proxying).
 
-Never forwarded: terminal/PTY, files, /api/env reads (only API_SERVER_KEY's is_set flag is
+Slash commands go to Hermes's gateway instead (gateway.py), and only as commands.catalog and
+slash.exec. Never forwarded: terminal/PTY, files, /api/env reads (only API_SERVER_KEY's is_set flag is
 read internally), /api/env/reveal, config writes, backups, credentials, webhooks, OAuth, chat.
 """
 from __future__ import annotations
@@ -17,6 +18,7 @@ from typing import Any, Callable, Optional
 
 from . import TESTED_HERMES, __version__
 from .config import Config, ConfigError
+from .gateway import Gateway, GatewayRefused, GatewayUnavailable
 from .upstream import Dashboard, UpstreamResponse, UpstreamUnreachable, quote
 
 log = logging.getLogger("hermes_bridge")
@@ -49,9 +51,10 @@ COMPAT_PROBES: list[tuple[str, str]] = [
 
 
 class Bridge:
-    def __init__(self, cfg: Config, dashboard: Optional[Dashboard] = None):
+    def __init__(self, cfg: Config, dashboard: Optional[Dashboard] = None, gateway: Optional[Gateway] = None):
         self.cfg = cfg
         self.dash = dashboard or Dashboard(cfg.dashboard_url, cfg.dashboard_token, cfg.timeout)
+        self.gateway = gateway or Gateway(cfg.hermes_home, cfg.timeout)
         self._compat: Optional[tuple[float, dict]] = None
         self._compat_lock = threading.Lock()
         self.routes: list[tuple[str, re.Pattern, Callable[..., Result], bool, bool]] = []
@@ -88,6 +91,10 @@ class Bridge:
         r("GET", P + r"/soul", self.soul_get)
         r("PUT", P + r"/soul", self.soul_put)
         r("GET", P + r"/usage", self.usage)
+        # Hermes's own command handlers, through the gateway that owns the profile's chats (not the
+        # dashboard), so these don't depend on the dashboard compatibility probes.
+        r("GET", P + r"/commands", self.commands_catalog, gate=False)
+        r("POST", P + r"/commands/run", self.commands_run, gate=False)
 
     def _route(self, method: str, pattern: str, fn: Callable[..., Result], auth: bool = True, gate: bool = True) -> None:
         self.routes.append((method, re.compile("^" + pattern + "$"), fn, auth, gate and auth))
@@ -449,6 +456,70 @@ class Bridge:
         return 200, {"days": days, "totals": body.get("totals") or {}, "by_model": body.get("by_model") or [],
                      "daily": body.get("daily") or []}
 
+    # Slash commands, run by Hermes's own handlers (the ones Telegram uses) in the gateway that owns
+    # the session. Only commands.catalog and slash.exec are sent; Hermes decides what a session may
+    # run and refuses the rest (unsupported_command, with a hint when Hermes has one).
+    def _gateway(self, p: str, method: str, params: dict) -> Any:
+        try:
+            return self.gateway.call(p, method, params)
+        except GatewayUnavailable as e:
+            log.warning("gateway unavailable for profile %s: %s (%s)", p, e.code, e)
+            raise HttpError(503, "commands_unavailable", str(e), reason=e.code) from None
+        except GatewayRefused as e:
+            status, code, message = _COMMAND_REFUSALS.get(e.reason, (502, f"hermes_{e.reason}", f"Hermes refused the command ({e.reason})."))
+            extra = {"detail": e.detail} if e.detail else {}
+            raise HttpError(status, code, message + (f" {e.detail}" if e.detail else ""), reason=e.reason, **extra) from None
+
+    def commands_catalog(self, p: str, **_) -> Result:
+        body = self._gateway(p, "commands.catalog", {})
+        body = body if isinstance(body, dict) else {}
+        aliases: dict[str, list[str]] = {}
+        for alias, canon in (body.get("canon") or {}).items():
+            if isinstance(alias, str) and isinstance(canon, str) and alias != canon:
+                aliases.setdefault(canon, []).append(alias.lstrip("/"))
+        commands, seen = [], set()
+        for cat in body.get("categories") or []:
+            if not isinstance(cat, dict):
+                continue
+            for pair in cat.get("pairs") or []:
+                if not (isinstance(pair, list) and len(pair) == 2 and all(isinstance(x, str) for x in pair)):
+                    continue
+                name = pair[0].lstrip("/")
+                if name in seen:
+                    continue
+                seen.add(name)
+                commands.append({"name": name, "description": pair[1][:300], "category": str(cat.get("name") or ""),
+                                 "aliases": sorted(aliases.get(pair[0], []))})
+        plugins = [n.lstrip("/") for n in (body.get("plugin_commands") or {}) if isinstance(n, str)]
+        return 200, {"commands": commands, "plugin_commands": plugins}
+
+    def commands_run(self, p: str, body: dict, **_) -> Result:
+        session_id, command = body.get("session_id"), body.get("command")
+        if not isinstance(session_id, str) or not SESSION_ID_RE.match(session_id):
+            raise HttpError(400, "invalid_body", "session_id must be a Hermes session id")
+        if (not isinstance(command, str) or not command.startswith("/") or len(command) > 4000
+                or any(ord(c) < 32 and c not in "\n\t" for c in command)):
+            raise HttpError(400, "invalid_body", "command must be a slash command like /status (up to 4000 characters)")
+        if set(body) - {"session_id", "command"}:
+            raise HttpError(400, "invalid_body", "Only session_id and command are accepted.")
+        result = self._gateway(p, "slash.exec", {"session_id": session_id, "command": command})
+        result = result if isinstance(result, dict) else {}
+        if result.get("type") == "send" and isinstance(result.get("message"), str):
+            return 200, {"type": "send", "message": result["message"]}
+        return 200, {"type": "exec", "output": str(result.get("output") or "")}
+
+
+SESSION_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$")
+_COMMAND_REFUSALS = {
+    "unsupported_command": (422, "command_unsupported", "Hermes doesn't run this command for this chat."),
+    "not_found": (404, "session_not_owned",
+                  "Hermes's gateway doesn't run commands for this session. It runs them in the bot's Bot Chat; "
+                  "sessions made through the API server aren't owned by the gateway."),
+    "permission_denied": (403, "command_denied", "Hermes didn't allow this command here."),
+    "session_busy": (409, "session_busy", "The bot is busy with a reply; try again when it's done."),
+    "invalid_params": (400, "invalid_command", "Hermes couldn't read that command."),
+    "profile_mismatch": (404, "session_not_owned", "That session belongs to another profile."),
+}
 
 SOUL_MAX_BYTES = 48 * 1024  # under MAX_BODY, leaving room for JSON escaping
 
