@@ -276,5 +276,113 @@ class InitTest(unittest.TestCase):
             self.assertEqual(k.read_text(), first)
 
 
+class CommandsTest(unittest.TestCase):
+    """/v1/profiles/<p>/commands against a fake gateway (control socket + /api/ws), no dashboard needed."""
+
+    def setUp(self):
+        from fake_gateway import FakeGateway
+        self.tmp = tempfile.TemporaryDirectory()
+        d = Path(self.tmp.name)
+        (d / "key").write_text(KEY + "\n")
+        (d / "token").write_text(f"{TOKEN}\n")
+        self.gw = FakeGateway(d / "hermes", served=("default", "scout"))
+        self.gw.start()
+        cfg = load(environ={"HERMES_BRIDGE_DASHBOARD_URL": "http://127.0.0.1:9", "HERMES_BRIDGE_KEY_FILE": str(d / "key"),
+                            "HERMES_BRIDGE_DASHBOARD_TOKEN_FILE": str(d / "token"), "HERMES_BRIDGE_HERMES_HOME": str(d / "hermes"),
+                            "HERMES_BRIDGE_TIMEOUT": "5"})
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(Bridge(cfg)))
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        self.gw.stop()
+        self.tmp.cleanup()
+
+    req = BridgeTest.req
+
+    def run_cmd(self, command, session="local-0123456789abcdef", profile="default"):
+        return self.req("POST", f"/v1/profiles/{profile}/commands/run", {"session_id": session, "command": command})
+
+    def test_needs_the_bridge_key(self):
+        self.assertEqual(self.req("GET", "/v1/profiles/default/commands", key=None)[0], 401)
+        self.assertEqual(self.req("POST", "/v1/profiles/default/commands/run", {"session_id": "x", "command": "/status"}, key=None)[0], 401)
+        self.assertEqual(self.gw.calls, [])
+
+    def test_runs_a_command_through_hermes_handlers(self):
+        status, body = self.run_cmd("/title Phone chat")
+        self.assertEqual((status, body), (200, {"type": "exec", "output": "ran /title Phone chat"}))
+        self.assertEqual(self.gw.calls, ["identify", "session-ticket"])
+        self.assertEqual(self.gw.ws_methods, ["slash.exec"])
+
+    def test_prompt_commands_come_back_as_a_message_to_send(self):
+        self.assertEqual(self.run_cmd("/plan fix it"), (200, {"type": "send", "message": "[/plan] plan it: fix it"}))
+
+    def test_large_replies_and_fragmented_frames(self):
+        status, body = self.run_cmd("/big")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(body["output"]), len("ran /big") + 70000)
+
+    def test_catalog_is_flattened_with_aliases(self):
+        status, body = self.req("GET", "/v1/profiles/scout/commands")
+        self.assertEqual(status, 200)
+        names = [c["name"] for c in body["commands"]]
+        self.assertEqual(names, ["new", "queue", "status", "deploy"])
+        self.assertEqual(body["commands"][0]["aliases"], ["reset"])
+        self.assertEqual(body["commands"][3]["category"], "User commands")
+        self.assertEqual(body["plugin_commands"], ["weather"])
+        self.assertEqual(self.gw.ws_methods, ["commands.catalog"])
+
+    def test_refusals_are_explained(self):
+        self.gw.refuse["compress"] = ("unsupported_command", None)
+        self.gw.refuse["snapshot"] = ("unsupported_command", "Run `hermes backup --quick` in a terminal.")
+        status, body = self.run_cmd("/compress")
+        self.assertEqual((status, body["error"]["code"], body["error"]["reason"]), (422, "command_unsupported", "unsupported_command"))
+        status, body = self.run_cmd("/snapshot")
+        self.assertIn("hermes backup", body["error"]["message"])
+        status, body = self.run_cmd("/status", session="api_1_abc")
+        self.assertEqual((status, body["error"]["code"]), (404, "session_not_owned"))
+
+    def test_validates_the_body_before_touching_hermes(self):
+        for bad in [{"session_id": "../x", "command": "/status"}, {"session_id": "s1", "command": "status"},
+                    {"session_id": "s1", "command": "/a\x00b"}, {"session_id": "s1", "command": "/" + "a" * 4001},
+                    {"session_id": "s1", "command": "/status", "method": "session.mutate"}, {"command": "/status"}]:
+            status, body = self.req("POST", "/v1/profiles/default/commands/run", bad)
+            self.assertEqual(status, 400, bad)
+        self.assertEqual(self.gw.calls, [])
+
+    def test_only_allowlisted_methods_can_be_sent(self):
+        from hermes_bridge.gateway import Gateway
+        g = Gateway(self.gw.root)
+        for method in ("session.mutate", "prompt.submit", "config.set", "session.list"):
+            with self.assertRaises(ValueError):
+                g.call("default", method, {})
+        self.assertEqual(self.gw.calls, [])
+
+    def test_unserved_profile_and_stopped_gateway(self):
+        status, body = self.req("GET", "/v1/profiles/other/commands")
+        self.assertEqual((status, body["error"]["code"], body["error"]["reason"]), (503, "commands_unavailable", "gateway_not_running"))
+        self.gw.state = "draining"
+        status, body = self.req("GET", "/v1/profiles/default/commands")
+        self.assertEqual(body["error"]["reason"], "gateway_not_ready")
+        self.gw.state = "ready"
+        self.gw.stop()
+        status, body = self.req("GET", "/v1/profiles/default/commands")
+        self.assertEqual((status, body["error"]["reason"]), (503, "gateway_not_running"))
+        self.gw.start()
+
+    def test_refuses_a_non_loopback_api_origin(self):
+        self.gw.api_origin = "http://192.0.2.10:8642"
+        status, body = self.req("GET", "/v1/profiles/default/commands")
+        self.assertEqual((status, body["error"]["reason"]), (503, "gateway_incompatible"))
+
+    def test_refuses_a_socket_other_users_can_open(self):
+        os.chmod(self.gw.root / "gateway.sock", 0o666)
+        status, body = self.req("GET", "/v1/profiles/default/commands")
+        self.assertEqual((status, body["error"]["reason"]), (503, "gateway_unsafe_socket"))
+        self.assertEqual(self.gw.calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()
